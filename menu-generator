@@ -1,0 +1,152 @@
+<?php
+/**
+ * Plugin Name: Menu Regenerator
+ * Description: Плагин для перегенерации меню категорий товаров.
+ * Version: 1.0.1
+ * Author: WebCreative Studio
+ */
+
+// Функция для создания меню категорий товаров
+function create_product_category_menu() {
+    // Указываем название меню
+    $menu_name = 'Product Categories';
+    // Проверяем, существует ли меню с таким названием
+    $menu_exists = wp_get_nav_menu_object( $menu_name );
+    if ( ! $menu_exists ) {
+        // Если меню не существует, создаем его
+        $menu_id = wp_create_nav_menu( $menu_name );
+        // Получаем список родительских категорий товаров
+        $parent_categories = get_terms( array(
+            'taxonomy' => 'product_cat',
+            'parent' => 0,
+            'hide_empty' => false,
+            'orderby' => 'name',
+            'order' => 'ASC',
+        ) );
+		
+// Получаем ID категории товаров по умолчанию
+$default_cat_id = get_option('default_product_cat');
+
+// Получаем термин категории товаров по умолчанию по ID
+$exclude_term = get_term_by('id', $default_cat_id, 'product_cat');
+
+// Исключить термин категории товаров по умолчанию из массива $parent_categories
+$parent_categories = array_filter($parent_categories, function($term) use ($exclude_term) {
+    return $term->term_id !== $exclude_term->term_id;
+});
+
+		
+        // Создаем массив для хранения ID элементов меню
+        $menu_item_ids = array();
+        // Для каждой родительской категории товаров создаем элемент меню
+        foreach ( $parent_categories as $parent_category ) {
+            // Обновляем меню и получаем ID элемента
+            $last_parent_id = wp_update_nav_menu_item( $menu_id, 0, array(
+                'menu-item-title' => $parent_category->name,
+                'menu-item-object-id' => $parent_category->term_id,
+                'menu-item-object' => 'product_cat',
+                'menu-item-type' => 'taxonomy',
+                'menu-item-status' => 'publish',
+            ) );
+            // Добавляем ID элемента в массив
+            $menu_item_ids[ $parent_category->term_id ] = $last_parent_id;
+
+            // Получаем список дочерних категорий текущей родительской категории
+            $child_categories = get_terms( array(
+                'taxonomy' => 'product_cat',
+                'parent' => $parent_category->term_id,
+                'hide_empty' => false,
+                'orderby' => 'name',
+                'order' => 'ASC',
+            ) );
+
+            // Для каждой дочерней категории создаем элемент меню
+            foreach ( $child_categories as $child_category ) {
+                // Обновляем меню и получаем ID элемента
+                $last_child_id = wp_update_nav_menu_item( $menu_id, 0, array(
+                    'menu-item-title' => $child_category->name,
+                    'menu-item-object-id' => $child_category->term_id,
+                    'menu-item-object' => 'product_cat',
+                    'menu-item-type' => 'taxonomy',
+                    'menu-item-status' => 'publish',
+                    'menu-item-parent-id' => $last_parent_id,
+                ) );
+                // Добавляем ID элемента в массив
+                $menu_item_ids[ $child_category->term_id ] = $last_child_id;
+            
+                // Получаем список внуков текущей дочерней категории
+                $grandchild_categories = get_terms( array(
+                    'taxonomy' => 'product_cat',
+                    'parent' => $child_category->term_id,
+                    'hide_empty' => false,
+                    'orderby' => 'name',
+                    'order' => 'ASC',
+                ) );
+            
+                // Для каждого внука создаем элемент меню
+                foreach ( $grandchild_categories as $grandchild_category ) {
+                    // Обновляем меню и получаем ID элемента
+                    $last_grandchild_id = wp_update_nav_menu_item( $menu_id, 0, array(
+                        'menu-item-title' => $grandchild_category->name,
+                        'menu-item-object-id' => $grandchild_category->term_id,
+                        'menu-item-object' => 'product_cat',
+                        'menu-item-type' => 'taxonomy',
+                        'menu-item-status' => 'publish',
+                        'menu-item-parent-id' => $last_child_id,
+                    ) );
+                    // Добавляем ID элемента в массив
+                    $menu_item_ids[ $grandchild_category->term_id ] = $last_grandchild_id;
+                }
+            }
+        }
+    }
+}
+
+// Добавление страницы настроек плагина в меню WordPress
+function menu_regenerator_add_admin_menu() {
+    add_menu_page( 
+        'Menu Regenerator', 
+        'Menu Regenerator', 
+        'manage_options', 
+        'menu-regenerator', 
+        'menu_regenerator_settings_page' 
+    );
+}
+add_action( 'admin_menu', 'menu_regenerator_add_admin_menu' );
+
+// Страница настроек плагина
+function menu_regenerator_settings_page() {
+    ?>
+    <div class="wrap">
+        <h2>Menu Regenerator</h2>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+            <input type="hidden" name="action" value="regenerate_product_menu">
+            <?php wp_nonce_field('regenerate_menu_nonce'); ?>
+            <input type="submit" value="Перегенерировать меню" class="button button-primary">
+        </form>
+    </div>
+    <?php
+}
+
+// Обработка нажатия кнопки
+function handle_menu_regeneration() {
+    if (isset($_POST['action']) && check_admin_referer('regenerate_menu_nonce')) {
+        create_product_category_menu();
+        wp_redirect(admin_url('admin.php?page=menu-regenerator&regenerated=true'));
+
+        exit;
+    }
+}
+add_action('admin_post_regenerate_product_menu', 'handle_menu_regeneration');
+
+// Уведомление об успешной генерации меню
+function menu_regeneration_success_notice() {
+    if (isset($_GET['regenerated'])) {
+        ?>
+        <div class="notice notice-success is-dismissible">
+            <p>Меню категорий пересоздано.</p>
+        </div>
+        <?php
+    }
+}
+add_action('admin_notices', 'menu_regeneration_success_notice');
